@@ -23,4 +23,3 @@ if not os.path.exists(dummy):
         f.write("All initialized in terms of packages, etc, should run smoothly. If not contact mjstraus2304@gmail.com")
 
 status = os.system(f"{VIRTUAL_PYTHON} main.py")
-print(status)
