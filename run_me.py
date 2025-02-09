@@ -10,8 +10,8 @@ VIRTUAL_FOLDER = "virtual"
 VIRTUAL_PIP = f'{VIRTUAL_FOLDER}\\Scripts\\pip.exe'
 VIRTUAL_PYTHON = f'{VIRTUAL_FOLDER}\\Scripts\\python.exe'
 
-print("Setting up...")
 if not os.path.exists(VIRTUAL_FOLDER):
+    print("Setting up...")
     os.mkdir(VIRTUAL_FOLDER)
     os.system(f"{PYTHON38} -m venv {VIRTUAL_FOLDER}")
     os.system(f"{VIRTUAL_PYTHON} -m pip install --upgrade pip")
@@ -22,5 +22,5 @@ if not os.path.exists(dummy):
     with open(dummy, 'a') as f:
         f.write("All initialized in terms of packages, etc, should run smoothly. If not contact mjstraus2304@gmail.com")
 
-status = os.system(f"{VIRTUAL_PYTHON} dep.py")
+status = os.system(f"{VIRTUAL_PYTHON} main.py")
 print(status)
