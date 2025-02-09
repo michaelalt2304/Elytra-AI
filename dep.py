@@ -23,6 +23,7 @@ import cv2
 import supervision as sv
 from ultralytics import YOLOv10
 
+
 def get_filename(fpath):
     return fpath.replace('\\', '/').rsplit('/', 1)[-1]
 def get_ext(fpath):
@@ -30,7 +31,11 @@ def get_ext(fpath):
     per_index = fname.index('.')
     ext = fname[per_index + 1:].lower()
     return ext
-def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True) -> np.ndarray:
+
+def relu(x):
+    return max(x, 0)
+
+def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 5) -> np.ndarray:
     # print("Annotating...")
     fix_img = im.convert('RGB')
     np_img = np.array(fix_img)
@@ -42,9 +47,27 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
         conf_array = np.array(results.boxes.conf.cpu())
         used_labels = [str(round(x * 100)) + '%' for x in conf_array]
     
+
+
     tot_time = sum([x for x in results.speed.values()])
     
     detections = sv.Detections.from_ultralytics(results)
+    for i, el1 in enumerate(detections.xyxy):
+        for j, el2 in enumerate(detections.xyxy):
+            if i >= j:
+                continue
+            if relu(el1[0] - el2[0]) + relu(el1[1] - el2[1]) < pixel_threshold:
+                print("TOP CORNERS TOO CLOSE", el1, el2)
+            elif relu(el1[2] - el2[2]) + relu(el1[3] - el2[3]) < pixel_threshold:
+                print(el1[2], el2[2])
+                print("BOTTOM CORNERS TOO CLOSE", el1, el2)
+    if find_one:
+        for cl_no, cl in enumerate(detections.data['class_name']):
+            if cl == 'Trash':
+                detections.data['class_name'][cl_no] = 'Gold'
+                detections.class_id[cl_no] = len(np.unique(detections.class_id)) + 1
+                break
+
     annotated_image = bounding_box_annotator.annotate(
         scene=np_img, detections=detections)
     num_oysters = detections.xyxy.shape[0]

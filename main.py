@@ -10,9 +10,10 @@ VIDEO_NAME = "trash v2.mp4"
 
 ##############################################
 
-ann_video(VIDEO_NAME, model_YOLO, .1)
+# ann_video(VIDEO_NAME, model_YOLO, .1)
 
 # pass in image
 
 IMAGE_NAME = "trash.jpg"
-ann_img(IMAGE_NAME, model_YOLO)
+out = ann_img(IMAGE_NAME, model_YOLO)
+print(out[3])
