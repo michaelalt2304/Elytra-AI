@@ -7,3 +7,4 @@ virtual/
 *.mP4
 *.Mp4
 *.MP4
+__pycache__/

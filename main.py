@@ -1,5 +1,5 @@
 from dep import *
-model_2 = YOLOv10('best.pt')
+model_YOLO = YOLOv10('best.pt')
 # pass in video - saves to VIDEO_NAME_annotated.mp4
 
 ##############################################
@@ -10,6 +10,9 @@ VIDEO_NAME = "trash v2.mp4"
 
 ##############################################
 
-ann_video_helper(VIDEO_NAME, model_2, .1)
+ann_video(VIDEO_NAME, model_YOLO, .1)
 
 # pass in image
+
+IMAGE_NAME = "trash.jpg"
+ann_img(IMAGE_NAME, model_YOLO)

@@ -52,7 +52,19 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
         scene=annotated_image, detections=detections, labels = used_labels if not name_labels else None)
     return(annotated_image, num_oysters, tot_time, detections)
 
-def ann_video_helper(input_vid: str, model, conf_level: float, out_location = '.', im_width = 416, im_height = 416, name_labels = True, fast_ann = False):
+def ann_img(fname, model, conf_level = 0.05):
+        im = Image.open(fname)
+        np_img = np.array(im)
+        np_img_rsz = cv2.resize(np_img, (412, 412))
+        good_im = Image.fromarray(np_img_rsz)
+        out = ann_img_helper(good_im, model, conf_level = conf_level)
+        fname_out = get_filename(fname).rsplit(".")[0] + "_annotated." + get_ext(fname)
+        Image.fromarray(out[0]).save(fname_out)
+        print(f"Annotated image saved to {fname_out}")
+        return out
+
+
+def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_width = 416, im_height = 416, name_labels = True, fast_ann = False):
     tot_oysters = 0
     
     container = av.open(input_vid)
