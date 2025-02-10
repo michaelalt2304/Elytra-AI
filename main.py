@@ -6,8 +6,8 @@ model_YOLO = YOLOv10('best.pt')
 ###### UPDATE WITH YOUR VIDEO PATH ###########
 ##############################################
 
-# VIDEO_NAME = "trash v2.mp4"
-VIDEO_NAME = "media/trash_test.mp4"
+VIDEO_NAME = "media/trash v2.mp4"
+# VIDEO_NAME = "media/middle.mp4"
 
 ##############################################
 

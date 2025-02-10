@@ -54,6 +54,10 @@ def update_det_prev(det_prev, xyxy, confidence = None, count = -1, id = None):
         id = det_prev['id']
     return {'xyxy' : xyxy, 'confidence' : confidence, 'count' : count, 'id' : id}
 
+def avg(a, b):
+    return (a + b) / 2
+def new_xyxy_f(d, p):
+    return np.asarray([avg(d[0], p[0]), avg(d[1], p[1]), avg(d[2], p[2]), avg(d[3], p[3])])
 
 def find_change_max(detections, good_class = 'Pick'):
     for cl_no, cl in enumerate(detections.data['class_name']):
@@ -99,7 +103,8 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
                 det_prev['count'] = 0
                 detections.data['class_name'][cl_no] = 'Pick'
                 detections.class_id[cl_no] = det_prev['id']
-                det_prev = update_det_prev(det_prev, detections.xyxy[cl_no], detections.confidence[cl_no], 0, det_prev['id'])
+                new_xyxy = new_xyxy_f(detections.xyxy[cl_no], det_prev['xyxy'])
+                det_prev = update_det_prev(det_prev, new_xyxy, detections.confidence[cl_no], 0, det_prev['id'])
                 break
         if not found and det_prev['count'] > max_error:
             det_prev['count'] = 0
