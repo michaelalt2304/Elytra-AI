@@ -43,8 +43,27 @@ def check_close(detections, pixel_threshold):
             elif abs(det1[2] - det2[2]) + abs(det1[3] - det2[3]) < pixel_threshold:
                 elim_list.append(i)
     return np.unique(elim_list)
-        
-def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 5) -> np.ndarray:
+
+
+def update_det_prev(det_prev, xyxy, confidence = None, count = -1, id = None):
+    if not confidence:
+        confidence = det_prev['confidence']
+    if count < 0:
+        count = det_prev['count']
+    if not id:
+        id = det_prev['id']
+    return {'xyxy' : xyxy, 'confidence' : confidence, 'count' : count, 'id' : id}
+
+
+def find_change_max(detections, good_class = 'Pick'):
+    for cl_no, cl in enumerate(detections.data['class_name']):
+            if cl == 'Trash':
+                detections.data['class_name'][cl_no] = good_class
+                detections.class_id[cl_no] = len(np.unique(detections.class_id)) + 1
+                det_prev = update_det_prev(None, detections.xyxy[cl_no], detections.confidence[cl_no], 0, len(np.unique(detections.class_id)) + 1)
+                break 
+    return detections, det_prev    
+def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10) -> np.ndarray:
     # print("Annotating...")
     fix_img = im.convert('RGB')
     np_img = np.array(fix_img)
@@ -61,33 +80,46 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
     
     detections = sv.Detections.from_ultralytics(results)
     too_close = check_close(detections, pixel_threshold=pixel_threshold)
-    too_close.sort()
-    too_close = too_close[::-1]
-    # print(detections.xyxy.shape)
-    detections.class_id = np.delete(detections.class_id, too_close, axis = 0)
-    for x in too_close:
-        # print(np.asarray(detections.xyxy.shape))
-        detections.xyxy = np.delete(np.asarray(detections.xyxy), x, 0)
-    # detections.xyxy = np.reshape(detections.xyxy, (// 4, 4))
-    # print(detections.xyxy.shape)
-    detections.confidence = np.delete(detections.confidence, too_close)
-    # print(detections.data['class_name'])
-    detections.data['class_name'] = np.delete(detections.data['class_name'], too_close)
-    # print(detections.data['class_name'])
-    # print(detections)
-    if find_one:
-        for cl_no, cl in enumerate(detections.data['class_name']):
-            if cl == 'Trash':
-                detections.data['class_name'][cl_no] = 'Gold'
-                detections.class_id[cl_no] = len(np.unique(detections.class_id)) + 1
+    if len(too_close) > 1:
+        too_close.sort()
+        too_close = too_close[::-1]
+        detections.class_id = np.delete(detections.class_id, too_close, axis = 0)
+        for x in too_close:
+            detections.xyxy = np.delete(np.asarray(detections.xyxy), x, 0)
+        detections.confidence = np.delete(detections.confidence, too_close)
+        detections.data['class_name'] = np.delete(detections.data['class_name'], too_close)
+    if not det_prev:
+        detections, det_prev = find_change_max(detections)
+    else:
+        # check closeness of top corner w/ new boxes, update if better
+        found=False
+        for cl_no, el in enumerate(detections.xyxy):
+            if abs(el[0] - det_prev['xyxy'][0]) + abs(el[1] - det_prev['xyxy'][1]) < pixel_threshold and abs(el[2] - det_prev['xyxy'][2]) + abs(el[3] - det_prev['xyxy'][3]) < pixel_threshold:
+                found = True
+                det_prev['count'] = 0
+                detections.data['class_name'][cl_no] = 'Pick'
+                detections.class_id[cl_no] = det_prev['id']
+                det_prev = update_det_prev(det_prev, detections.xyxy[cl_no], detections.confidence[cl_no], 0, det_prev['id'])
                 break
+        if not found and det_prev['count'] > max_error:
+            det_prev['count'] = 0
+            detections, det_prev = find_change_max(detections)
+        elif not found:
+            # add previous detection into array artificially
+            detections.class_id = np.append(detections.class_id, det_prev['id'])
+            detections.xyxy = np.append(detections.xyxy, det_prev['xyxy'], 0)
+            detections.confidence = np.append(detections.confidence, det_prev['confidence'])
+            detections.data['class_name'] = np.append(detections.data['class_name'], 'Pick')
+            # mark that an error occurred, if too many switch target
+            det_prev['count'] += 1
 
+        
     annotated_image = bounding_box_annotator.annotate(
         scene=np_img, detections=detections)
     num_oysters = detections.xyxy.shape[0]
     annotated_image = label_annotator.annotate(
         scene=annotated_image, detections=detections, labels = used_labels if not name_labels else None)
-    return(annotated_image, num_oysters, tot_time, detections)
+    return annotated_image, num_oysters, tot_time, detections, det_prev
 
 def ann_img(fname, model, conf_level = 0.05):
         im = Image.open(fname)
@@ -99,6 +131,7 @@ def ann_img(fname, model, conf_level = 0.05):
         Image.fromarray(out[0]).save(fname_out)
         print(f"Annotated image saved to {fname_out}")
         return out
+
 
 
 def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_width = 416, im_height = 416, name_labels = True, fast_ann = False):
@@ -125,6 +158,7 @@ def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_w
    
     start_overall = time()
     fr_diff_factor = 1
+    det_prev = None
     for index, frame in enumerate(container.decode(stream_vid)):
         if index % fr_diff_factor < 1: # as close to zero as you are going to get
             start_fr = time()
@@ -133,7 +167,7 @@ def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_w
             np_img_resize = cv2.resize(np_img, (im_width, im_height))
             np_rot = np_img_resize[:, :, ::-1]
             small_pil_img = Image.fromarray(np_rot)
-            an_mg, num_oysters, _, _ = ann_img_helper(small_pil_img, model, conf_level = conf_level, name_labels=name_labels)
+            an_mg, num_oysters, _, det, det_prev = ann_img_helper(small_pil_img, model, conf_level = conf_level, name_labels=name_labels, det_prev = det_prev)
             tot_oysters += num_oysters
             frame_out = av.VideoFrame.from_ndarray(an_mg, format='bgr24')
             end_fr = time()

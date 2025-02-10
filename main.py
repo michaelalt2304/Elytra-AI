@@ -10,7 +10,7 @@ VIDEO_NAME = "trash v2.mp4"
 
 ##############################################
 
-# ann_video(VIDEO_NAME, model_YOLO, .1)
+ann_video(VIDEO_NAME, model_YOLO, .1)
 
 # pass in image
 
