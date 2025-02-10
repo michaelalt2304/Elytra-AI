@@ -6,13 +6,14 @@ model_YOLO = YOLOv10('best.pt')
 ###### UPDATE WITH YOUR VIDEO PATH ###########
 ##############################################
 
-VIDEO_NAME = "trash v2.mp4"
+# VIDEO_NAME = "trash v2.mp4"
+VIDEO_NAME = "media/trash_test.mp4"
 
 ##############################################
 
-ann_video(VIDEO_NAME, model_YOLO, .1)
+ann_video(VIDEO_NAME, model_YOLO, .1, out_location = "media")
 
 # pass in image
 
-IMAGE_NAME = "trash.jpg"
+IMAGE_NAME = "media/trash.jpg"
 out = ann_img(IMAGE_NAME, model_YOLO)

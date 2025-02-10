@@ -94,7 +94,7 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
         # check closeness of top corner w/ new boxes, update if better
         found=False
         for cl_no, el in enumerate(detections.xyxy):
-            if abs(el[0] - det_prev['xyxy'][0]) + abs(el[1] - det_prev['xyxy'][1]) < pixel_threshold and abs(el[2] - det_prev['xyxy'][2]) + abs(el[3] - det_prev['xyxy'][3]) < pixel_threshold:
+            if abs(el[0] - det_prev['xyxy'][0]) + abs(el[1] - det_prev['xyxy'][1]) < pixel_threshold or abs(el[2] - det_prev['xyxy'][2]) + abs(el[3] - det_prev['xyxy'][3]) < pixel_threshold:
                 found = True
                 det_prev['count'] = 0
                 detections.data['class_name'][cl_no] = 'Pick'
@@ -106,10 +106,10 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
             detections, det_prev = find_change_max(detections)
         elif not found:
             # add previous detection into array artificially
-            detections.class_id = np.append(detections.class_id, det_prev['id'])
-            detections.xyxy = np.append(detections.xyxy, det_prev['xyxy'], 0)
-            detections.confidence = np.append(detections.confidence, det_prev['confidence'])
-            detections.data['class_name'] = np.append(detections.data['class_name'], 'Pick')
+            detections.class_id = np.insert(detections.class_id, 0, det_prev['id'])
+            detections.xyxy = np.insert(detections.xyxy, 0, det_prev['xyxy'], 0)
+            detections.confidence = np.insert(detections.confidence, 0, det_prev['confidence'])
+            detections.data['class_name'] = np.insert(detections.data['class_name'], 0, 'Pick')
             # mark that an error occurred, if too many switch target
             det_prev['count'] += 1
 
