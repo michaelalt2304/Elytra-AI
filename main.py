@@ -16,4 +16,3 @@ VIDEO_NAME = "trash v2.mp4"
 
 IMAGE_NAME = "trash.jpg"
 out = ann_img(IMAGE_NAME, model_YOLO)
-print(out[3])

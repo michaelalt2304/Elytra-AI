@@ -32,9 +32,18 @@ def get_ext(fpath):
     ext = fname[per_index + 1:].lower()
     return ext
 
-def relu(x):
-    return max(x, 0)
-
+def check_close(detections, pixel_threshold):
+    elim_list = []
+    for i, det1 in enumerate(detections.xyxy):
+        for j, det2 in enumerate(detections.xyxy):
+            if i <= j:
+                continue
+            if abs(det1[0] - det2[0]) + abs(det1[1] - det2[1]) < pixel_threshold:
+                elim_list.append(i)
+            elif abs(det1[2] - det2[2]) + abs(det1[3] - det2[3]) < pixel_threshold:
+                elim_list.append(i)
+    return np.unique(elim_list)
+        
 def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 5) -> np.ndarray:
     # print("Annotating...")
     fix_img = im.convert('RGB')
@@ -48,19 +57,24 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
         used_labels = [str(round(x * 100)) + '%' for x in conf_array]
     
 
-
     tot_time = sum([x for x in results.speed.values()])
     
     detections = sv.Detections.from_ultralytics(results)
-    for i, el1 in enumerate(detections.xyxy):
-        for j, el2 in enumerate(detections.xyxy):
-            if i >= j:
-                continue
-            if relu(el1[0] - el2[0]) + relu(el1[1] - el2[1]) < pixel_threshold:
-                print("TOP CORNERS TOO CLOSE", el1, el2)
-            elif relu(el1[2] - el2[2]) + relu(el1[3] - el2[3]) < pixel_threshold:
-                print(el1[2], el2[2])
-                print("BOTTOM CORNERS TOO CLOSE", el1, el2)
+    too_close = check_close(detections, pixel_threshold=pixel_threshold)
+    too_close.sort()
+    too_close = too_close[::-1]
+    # print(detections.xyxy.shape)
+    detections.class_id = np.delete(detections.class_id, too_close, axis = 0)
+    for x in too_close:
+        # print(np.asarray(detections.xyxy.shape))
+        detections.xyxy = np.delete(np.asarray(detections.xyxy), x, 0)
+    # detections.xyxy = np.reshape(detections.xyxy, (// 4, 4))
+    # print(detections.xyxy.shape)
+    detections.confidence = np.delete(detections.confidence, too_close)
+    # print(detections.data['class_name'])
+    detections.data['class_name'] = np.delete(detections.data['class_name'], too_close)
+    # print(detections.data['class_name'])
+    # print(detections)
     if find_one:
         for cl_no, cl in enumerate(detections.data['class_name']):
             if cl == 'Trash':
