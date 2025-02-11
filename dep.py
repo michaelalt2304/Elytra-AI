@@ -126,14 +126,14 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
         scene=annotated_image, detections=detections, labels = used_labels if not name_labels else None)
     return annotated_image, num_oysters, tot_time, detections, det_prev
 
-def ann_img(fname, model, conf_level = 0.05):
+def ann_img(fname, model, conf_level = 0.05, dest = "."):
         im = Image.open(fname)
         np_img = np.array(im)
         np_img_rsz = cv2.resize(np_img, (412, 412))
         good_im = Image.fromarray(np_img_rsz)
         out = ann_img_helper(good_im, model, conf_level = conf_level)
         fname_out = get_filename(fname).rsplit(".")[0] + "_annotated." + get_ext(fname)
-        Image.fromarray(out[0]).save(fname_out)
+        Image.fromarray(out[0]).save(os.path.join(dest, fname_out))
         print(f"Annotated image saved to {fname_out}")
         return out
 

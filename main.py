@@ -11,9 +11,9 @@ VIDEO_NAME = "media/trash v2.mp4"
 
 ##############################################
 
-ann_video(VIDEO_NAME, model_YOLO, .1, out_location = "media")
+# ann_video(VIDEO_NAME, model_YOLO, .1, out_location = "media")
 
 # pass in image
 
-IMAGE_NAME = "media/trash.jpg"
-out = ann_img(IMAGE_NAME, model_YOLO)
+IMAGE_NAME = "media/NYC_1.jpg"
+out = ann_img(IMAGE_NAME, model_YOLO, conf_level=.2, dest = "media")
