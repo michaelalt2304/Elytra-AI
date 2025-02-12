@@ -77,7 +77,7 @@ def find_change_max(detections, good_class = 'Pick'):
                 break 
 
     return detections, det_prev    
-def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10) -> np.ndarray:
+def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10, dupFlag = True, trackFlag = True) -> np.ndarray:
     # print("Annotating...")
     fix_img = im.convert('RGB')
     np_img = np.array(fix_img)
@@ -93,48 +93,50 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
     tot_time = sum([x for x in results.speed.values()])
     
     detections = sv.Detections.from_ultralytics(results)
-    too_close = check_close(detections, pixel_threshold=pixel_threshold)
-    if len(too_close) > 1:
-        too_close.sort()
-        too_close = too_close[::-1]
-        detections.class_id = np.delete(detections.class_id, too_close, axis = 0)
-        for x in too_close:
-            detections.xyxy = np.delete(np.asarray(detections.xyxy), x, 0)
-        detections.confidence = np.delete(detections.confidence, too_close)
-        detections.data['class_name'] = np.delete(detections.data['class_name'], too_close)
-    if not det_prev:
-        detections, det_prev = find_change_max(detections)
-    else:
-        # check closeness of top corner w/ new boxes, update if better
-        found=False
-        for cl_no, el in enumerate(detections.xyxy):
-            if abs(el[0] - det_prev['xyxy'][0]) + abs(el[1] - det_prev['xyxy'][1]) < pixel_threshold or abs(el[2] - det_prev['xyxy'][2]) + abs(el[3] - det_prev['xyxy'][3]) < pixel_threshold:
-                found = True
-                det_prev['count'] = 0
-                detections.data['class_name'][cl_no] = 'Pick'
-                detections.class_id[cl_no] = det_prev['id']
-                new_xyxy = new_xyxy_f(detections.xyxy[cl_no], det_prev['xyxy'])
-                det_prev = update_det_prev(det_prev, new_xyxy, detections.confidence[cl_no], 0, det_prev['id'])
-                break
-        if not found and det_prev and det_prev['count'] > max_error:
-            det_prev['count'] = 0
+    if dupFlag:
+        too_close = check_close(detections, pixel_threshold=pixel_threshold)
+        if len(too_close) > 1:
+            too_close.sort()
+            too_close = too_close[::-1]
+            detections.class_id = np.delete(detections.class_id, too_close, axis = 0)
+            for x in too_close:
+                detections.xyxy = np.delete(np.asarray(detections.xyxy), x, 0)
+            detections.confidence = np.delete(detections.confidence, too_close)
+            detections.data['class_name'] = np.delete(detections.data['class_name'], too_close)
+    if trackFlag:
+        if not det_prev:
             detections, det_prev = find_change_max(detections)
-        elif not found and det_prev:
-            # print(detections.data['class_name'])
-            # add previous detection into array artificially
-            if len(detections.data['class_name']) == 0:
-                detections.data['class_name'] = np.asarray(['Pick'])
-                detections.class_id = np.asarray([det_prev['id']])
-                detections.xyxy = np.asarray([det_prev['xyxy']])
-                detections.confidence = np.asarray([det_prev['confidence']])
-                # print(detections)
-            else:
-                detections.class_id = np.insert(detections.class_id, 0, det_prev['id'])
-                detections.xyxy = np.insert(detections.xyxy, 0, det_prev['xyxy'], 0)
-                detections.confidence = np.insert(detections.confidence, 0, det_prev['confidence'])
-                detections.data['class_name'] = np.insert(detections.data['class_name'], 0, 'Pick')                
-            # mark that an error occurred, if too many switch target
-            det_prev['count'] += 1
+        else:
+            # check closeness of top corner w/ new boxes, update if better
+            found=False
+            for cl_no, el in enumerate(detections.xyxy):
+                if abs(el[0] - det_prev['xyxy'][0]) + abs(el[1] - det_prev['xyxy'][1]) < pixel_threshold or abs(el[2] - det_prev['xyxy'][2]) + abs(el[3] - det_prev['xyxy'][3]) < pixel_threshold:
+                    found = True
+                    det_prev['count'] = 0
+                    detections.data['class_name'][cl_no] = 'Pick'
+                    detections.class_id[cl_no] = det_prev['id']
+                    new_xyxy = new_xyxy_f(detections.xyxy[cl_no], det_prev['xyxy'])
+                    det_prev = update_det_prev(det_prev, new_xyxy, detections.confidence[cl_no], 0, det_prev['id'])
+                    break
+            if not found and det_prev and det_prev['count'] > max_error:
+                det_prev['count'] = 0
+                detections, det_prev = find_change_max(detections)
+            elif not found and det_prev:
+                # print(detections.data['class_name'])
+                # add previous detection into array artificially
+                if len(detections.data['class_name']) == 0:
+                    detections.data['class_name'] = np.asarray(['Pick'])
+                    detections.class_id = np.asarray([det_prev['id']])
+                    detections.xyxy = np.asarray([det_prev['xyxy']])
+                    detections.confidence = np.asarray([det_prev['confidence']])
+                    # print(detections)
+                else:
+                    detections.class_id = np.insert(detections.class_id, 0, det_prev['id'])
+                    detections.xyxy = np.insert(detections.xyxy, 0, det_prev['xyxy'], 0)
+                    detections.confidence = np.insert(detections.confidence, 0, det_prev['confidence'])
+                    detections.data['class_name'] = np.insert(detections.data['class_name'], 0, 'Pick')                
+                # mark that an error occurred, if too many switch target
+                det_prev['count'] += 1
 
         
     annotated_image = bounding_box_annotator.annotate(
@@ -145,16 +147,20 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
     return annotated_image, num_oysters, tot_time, detections, det_prev
 
 def ann_img(fname, model, conf_level = 0.05, dest = "."):
-        im = Image.open(fname)
-        np_img = np.array(im)
-        np_img_rsz = cv2.resize(np_img, (412, 412))
-        good_im = Image.fromarray(np_img_rsz)
-        out = ann_img_helper(good_im, model, conf_level = conf_level)
-        fname_out = get_filename(fname).rsplit(".")[0] + "_annotated." + get_ext(fname)
-        Image.fromarray(out[0]).save(os.path.join(dest, fname_out))
-        print(f"Annotated image saved to {fname_out}")
-        return out
+    im = Image.open(fname)
+    out = ann_img_live(im, model, conf_level=conf_level)
+    fname_out = get_filename(fname).rsplit(".")[0] + "_annotated." + get_ext(fname)
+    Image.fromarray(out[0]).save(os.path.join(dest, fname_out))
+    print(f"Annotated image saved to {fname_out}")
+    return out
 
+def ann_img_live(im: Image, model, conf_level = 0.05, det_prev = None, dupFlag = True, trackFlag = True):
+    np_img = np.array(im)
+    np_img_rsz = cv2.resize(np_img, (412, 412))
+    good_im = Image.fromarray(np_img_rsz)
+    out = ann_img_helper(good_im, model, conf_level = conf_level, det_prev = det_prev, dupFlag = dupFlag, trackFlag = trackFlag)
+    Image.fromarray(out[0]).save("live_img.png")
+    return out
 
 
 def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_width = 416, im_height = 416, name_labels = True, fast_ann = False):
