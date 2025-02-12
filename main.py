@@ -11,7 +11,7 @@ VIDEO_NAME = "media/video_NYC.mp4"
 
 ##############################################
 
-ann_video(VIDEO_NAME, model_YOLO, .1, out_location = "media")
+ann_video(VIDEO_NAME, model_YOLO, .4, out_location = "media")
 
 # pass in image
 
