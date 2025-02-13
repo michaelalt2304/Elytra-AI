@@ -17,12 +17,9 @@ VIDEO_NAME = "media/video_NYC.mp4"
 
 # IMAGE_NAME = "media/NYC_1.jpg"
 # out = ann_img(IMAGE_NAME, model_YOLO, conf_level=.2, dest = "media")
-def run_live():
-    det_prev = None
-    while(True):
-        cap = cv2.VideoCapture(0)
-        ret, frame = cap.read()
-        im = Image.fromarray(frame[:,:,::-1])
-        out = ann_img_live(im, model_YOLO, conf_level = 0.5, det_prev=det_prev, dupFlag = False, trackFlag = False)
-        det_prev = out[4]
-run_live()
+##################### live annotation #####################
+
+# run_live(model_YOLO)
+
+############################################################
+

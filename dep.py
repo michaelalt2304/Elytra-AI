@@ -22,6 +22,9 @@ from PIL import Image
 import cv2
 import supervision as sv
 from ultralytics import YOLOv10
+import tensorflow as tf
+import tensorflow.keras.layers as layers
+import random
 
 
 def get_filename(fpath):
@@ -77,12 +80,12 @@ def find_change_max(detections, good_class = 'Pick'):
                 break 
 
     return detections, det_prev    
-def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10, dupFlag = True, trackFlag = True) -> np.ndarray:
+def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10, dupFlag = True, trackFlag = True) -> np.ndarray:
     # print("Annotating...")
-    fix_img = im.convert('RGB')
-    np_img = np.array(fix_img)
-    cont_img = np.asarray(np_img, dtype=np.uint8)
-    results = model(cont_img, conf=conf_level, verbose = verbose)[0]
+    # fix_img = im.convert('RGB')
+    # np_img = np.array(fix_img)
+    # cont_img = np.asarray(np_img, dtype=np.uint8)
+    results = model(im, conf=conf_level, verbose = verbose)[0]
     if name_labels:
         used_labels = np.array(results.boxes.conf.cpu())
     else:
@@ -140,7 +143,7 @@ def ann_img_helper(im: Image, model, label_annotator = sv.LabelAnnotator(text_sc
 
         
     annotated_image = bounding_box_annotator.annotate(
-        scene=np_img, detections=detections)
+        scene=im, detections=detections)
     num_oysters = detections.xyxy.shape[0]
     annotated_image = label_annotator.annotate(
         scene=annotated_image, detections=detections, labels = used_labels if not name_labels else None)
@@ -154,11 +157,9 @@ def ann_img(fname, model, conf_level = 0.05, dest = "."):
     print(f"Annotated image saved to {fname_out}")
     return out
 
-def ann_img_live(im: Image, model, conf_level = 0.05, det_prev = None, dupFlag = True, trackFlag = True):
-    np_img = np.array(im)
-    np_img_rsz = cv2.resize(np_img, (412, 412))
-    good_im = Image.fromarray(np_img_rsz)
-    out = ann_img_helper(good_im, model, conf_level = conf_level, det_prev = det_prev, dupFlag = dupFlag, trackFlag = trackFlag)
+def ann_img_live(im: np.ndarray, model, conf_level = 0.05, det_prev = None, dupFlag = True, trackFlag = True, verbose = True):
+    np_img_rsz = cv2.resize(im[:,:,::-1], (412, 412))
+    out = ann_img_helper(np_img_rsz, model, conf_level = conf_level, det_prev = det_prev, dupFlag = dupFlag, trackFlag = trackFlag)
     Image.fromarray(out[0]).save("live_img.png")
     return out
 
@@ -224,3 +225,79 @@ def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_w
     ann_rate = (index / fps) / net_time # ratio of time to annotate versus length of video
     #1 / fr_diff_factor percentage of frames annotated, will be lower if using fast_ann
     return tot_oysters * fr_diff_factor / index, net_time, out_path, ann_rate, fr_diff_factor
+
+
+def run_live(model):
+    det_prev = None
+    while(True):
+        cap = cv2.VideoCapture(0)
+        ret, frame = cap.read()
+        out = ann_img_live(frame, model, conf_level = 0.5, det_prev=det_prev, dupFlag = False, trackFlag = False)
+        det_prev = out[4]
+
+def train_classification():
+    pass
+
+
+def ml_compile(csi, epochs=75, batch_size=128, ratio_test=1/6, ratio_validate = 1/6, complexity_scale = 3, plotting = False, return_min_acc = False, show_heatmap = True, diag_min = False):
+    data_fit=np.asarray([[[-1]]])
+    for i in range(csi.shape[0]):
+        if data_fit[0][0][0] == -1:
+            data_fit = np.asarray(csi[i])
+        else:
+            data_fit = np.append(data_fit, csi[i], axis=0)
+
+
+    labels=np.asarray([i for i in range(csi.shape[0]) for j in range(csi.shape[1])])
+    sample_num = [ (i % csi.shape[1]) for i in range(csi.shape[1] * csi.shape[0])]
+    to_shuffle=[[data_fit[i], labels[i], sample_num[i]] for i in range(len(labels))]
+    random.shuffle(to_shuffle)
+
+    shuffled_data=np.asarray([np.reshape(np.repeat([to_shuffle[i][0]], 3), (csi.shape[2],csi.shape[3],3)) / np.max(to_shuffle[i][0]) for i in range(len(to_shuffle))])
+    shuffled_labels=np.asarray([to_shuffle[i][1] for i in range(len(to_shuffle))])
+
+    l=shuffled_data.shape[0]
+    splt_test=int(l*ratio_test)
+    splt_val=int(l*ratio_validate)
+    data_test=np.take(shuffled_data, range(0,splt_test), axis=0)
+    data_val=np.take(shuffled_data, range(splt_test,splt_test+splt_val), axis=0)
+    data_train=np.take(shuffled_data, range(splt_test+splt_val,l), axis=0)
+    labels_test=np.asarray(shuffled_labels[:splt_test])
+    labels_val=np.asarray(shuffled_labels[splt_test:splt_test+splt_val])
+    labels_train=np.asarray(shuffled_labels[splt_test+splt_val:])
+    print(data_test.shape)
+    print(labels_test.shape)
+    model = tf.keras.models.Sequential([
+        layers.Conv2D(128, (2, 2), activation='relu', input_shape=data_train.shape[1:]),
+        # layers.Dropout(rate=.4),
+        layers.MaxPooling2D((2, 2)),
+        layers.Conv2D(64, (2, 2), activation='relu'),
+        layers.Dropout(rate=.4),
+        # layers.BatchNormalization(),
+        layers.MaxPooling2D((2, 2)),
+        layers.Conv2D(32, (2, 2), activation='relu'),
+        layers.Dropout(rate=.4),
+        # layers.Dropout(rate=.3),
+        layers.Flatten(),
+        layers.Dense(128 * (2 ** complexity_scale), activation='relu'),
+        # layers.Dropout(rate=.3),
+        layers.Dense(64 * (2 ** complexity_scale), activation='relu'),
+        # layers.Dropout(rate=.3),
+        layers.Dense(32 * (2 ** complexity_scale), activation = 'relu'),
+        # layers.Dropout(rate=.3),
+        layers.Dense(16 * (2 ** complexity_scale), activation = 'relu'),
+        # layers.Dropout(rate=.3),
+        layers.Dense(csi.shape[0])
+
+    ])
+    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+
+    model.compile(optimizer='adam',
+                loss=loss_fn,
+                metrics=['accuracy'], run_eagerly=True)
+    history = model.fit(data_train,labels_train,epochs=epochs, batch_size=batch_size, validation_data=(data_val, labels_val))
+    print(data_test.shape, len(labels_test))
+
+
+    model.save("models/most_recent.h5")
+    print("Saved model to models/most_recent.h5")

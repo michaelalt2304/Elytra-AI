@@ -6,6 +6,8 @@ Step 1: Install Python VERSION 3.8: https://www.python.org/downloads/release/pyt
 Step 2: Add the filepath of python.exe to PATH
 Step 3: If you have a different version of Python in PATH, replace the string indicated in run_me.py to point to the correct one.
 Step 4: Type python run_me.py in a terminal over this repository.
+Step 5: Go to https://www.kaggle.com/datasets/mostafaabla/garbage-classification?resource=download, unzip, put into this repo with name "classification"
+
 Note if you have any errors, you should delete the "virtual" directory and rerun run_me.py first before debugging
 Always execute python run_me.py and modify main.py. Look at source code if you want to configure it differently.
 Also ignore the warning that occurs when annotating - fix incoming

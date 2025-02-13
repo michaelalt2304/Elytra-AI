@@ -8,3 +8,6 @@ virtual/
 *.Mp4
 *.MP4
 __pycache__/
+classification/
+classification
+__pycache__
