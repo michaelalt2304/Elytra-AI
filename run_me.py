@@ -9,6 +9,7 @@ except Exception:
 VIRTUAL_FOLDER = "virtual"
 VIRTUAL_PIP = f'{VIRTUAL_FOLDER}\\Scripts\\pip.exe'
 VIRTUAL_PYTHON = f'{VIRTUAL_FOLDER}\\Scripts\\python.exe'
+CLASSIFICATION_DATA= "classification"
 
 if not os.path.exists(VIRTUAL_FOLDER):
     print("Setting up...")

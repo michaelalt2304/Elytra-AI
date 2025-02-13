@@ -25,6 +25,7 @@ from ultralytics import YOLOv10
 import tensorflow as tf
 import tensorflow.keras.layers as layers
 import random
+import math
 
 
 def get_filename(fpath):
@@ -56,35 +57,36 @@ def check_close(detections, pixel_threshold):
     return np.unique(elim_list)
 
 
-def update_det_prev(det_prev, xyxy, confidence = None, count = -1, id = None):
+def update_det_prev(det_prev, xyxy, confidence = None, count = -1, id = None, classification = None):
     if not confidence:
         confidence = det_prev['confidence']
     if count < 0:
         count = det_prev['count']
     if not id:
         id = det_prev['id']
-    return {'xyxy' : xyxy, 'confidence' : confidence, 'count' : count, 'id' : id}
+    if not classification:
+        classification = det_prev['classification']
+    return {'xyxy' : xyxy, 'confidence' : confidence, 'count' : count, 'id' : id, "classification" : classification}
 
 def avg(a, b):
     return (a + b) / 2
 def new_xyxy_f(d, p):
     return np.asarray([avg(d[0], p[0]), avg(d[1], p[1]), avg(d[2], p[2]), avg(d[3], p[3])])
 
-def find_change_max(detections, good_class = 'Pick'):
+def find_change_max(detections, im, model_class, ind_map):
     det_prev = None
     for cl_no, cl in enumerate(detections.data['class_name']):
             if cl == 'Trash':
+                xyxy = detections.xyxy[cl_no]
+                good_class, conf = get_class(im, xyxy, model_class, ind_map)
                 detections.data['class_name'][cl_no] = good_class
                 detections.class_id[cl_no] = len(np.unique(detections.class_id)) + 1
-                det_prev = update_det_prev(None, detections.xyxy[cl_no], detections.confidence[cl_no], 0, len(np.unique(detections.class_id)) + 1)
+
+                det_prev = update_det_prev(None, detections.xyxy[cl_no], detections.confidence[cl_no], 0, len(np.unique(detections.class_id)) + 1, good_class)
                 break 
 
     return detections, det_prev    
-def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10, dupFlag = True, trackFlag = True) -> np.ndarray:
-    # print("Annotating...")
-    # fix_img = im.convert('RGB')
-    # np_img = np.array(fix_img)
-    # cont_img = np.asarray(np_img, dtype=np.uint8)
+def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10, dupFlag = True, trackFlag = True, model_class = None, ind_map = None) -> np.ndarray:
     results = model(im, conf=conf_level, verbose = verbose)[0]
     if name_labels:
         used_labels = np.array(results.boxes.conf.cpu())
@@ -108,7 +110,7 @@ def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(te
             detections.data['class_name'] = np.delete(detections.data['class_name'], too_close)
     if trackFlag:
         if not det_prev:
-            detections, det_prev = find_change_max(detections)
+            detections, det_prev = find_change_max(detections, im, model_class, ind_map)
         else:
             # check closeness of top corner w/ new boxes, update if better
             found=False
@@ -116,19 +118,19 @@ def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(te
                 if abs(el[0] - det_prev['xyxy'][0]) + abs(el[1] - det_prev['xyxy'][1]) < pixel_threshold or abs(el[2] - det_prev['xyxy'][2]) + abs(el[3] - det_prev['xyxy'][3]) < pixel_threshold:
                     found = True
                     det_prev['count'] = 0
-                    detections.data['class_name'][cl_no] = 'Pick'
+                    detections.data['class_name'][cl_no] = det_prev['classification']
                     detections.class_id[cl_no] = det_prev['id']
                     new_xyxy = new_xyxy_f(detections.xyxy[cl_no], det_prev['xyxy'])
                     det_prev = update_det_prev(det_prev, new_xyxy, detections.confidence[cl_no], 0, det_prev['id'])
                     break
             if not found and det_prev and det_prev['count'] > max_error:
+                # lock onto new object, too long since seeing it
                 det_prev['count'] = 0
-                detections, det_prev = find_change_max(detections)
+                detections, det_prev = find_change_max(detections, im, model_class, ind_map)
             elif not found and det_prev:
-                # print(detections.data['class_name'])
                 # add previous detection into array artificially
                 if len(detections.data['class_name']) == 0:
-                    detections.data['class_name'] = np.asarray(['Pick'])
+                    detections.data['class_name'] = np.asarray([det_prev['classification']])
                     detections.class_id = np.asarray([det_prev['id']])
                     detections.xyxy = np.asarray([det_prev['xyxy']])
                     detections.confidence = np.asarray([det_prev['confidence']])
@@ -137,17 +139,31 @@ def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(te
                     detections.class_id = np.insert(detections.class_id, 0, det_prev['id'])
                     detections.xyxy = np.insert(detections.xyxy, 0, det_prev['xyxy'], 0)
                     detections.confidence = np.insert(detections.confidence, 0, det_prev['confidence'])
-                    detections.data['class_name'] = np.insert(detections.data['class_name'], 0, 'Pick')                
+                    detections.data['class_name'] = np.insert(detections.data['class_name'], 0, det_prev['classification'])                
                 # mark that an error occurred, if too many switch target
                 det_prev['count'] += 1
 
-        
+
+    im = Image.fromarray(im)
     annotated_image = bounding_box_annotator.annotate(
         scene=im, detections=detections)
     num_oysters = detections.xyxy.shape[0]
     annotated_image = label_annotator.annotate(
         scene=annotated_image, detections=detections, labels = used_labels if not name_labels else None)
-    return annotated_image, num_oysters, tot_time, detections, det_prev
+    return np.asarray(annotated_image), num_oysters, tot_time, detections, det_prev
+
+def get_class(im, xyxy, model_class, ind_map):
+    if not model_class or not ind_map:
+        new_class = 'Pick'
+        prob = 0
+    else:
+        x_start = int(xyxy[0])
+        x_end = int(xyxy[2])
+        y_start = int(xyxy[1])
+        y_end = int(xyxy[3])
+        new_class, prob = predict_trash(im[x_start:x_end, y_start:y_end], model_class, ind_map)
+    return new_class, prob
+
 
 def ann_img(fname, model, conf_level = 0.05, dest = "."):
     im = Image.open(fname)
@@ -164,7 +180,7 @@ def ann_img_live(im: np.ndarray, model, conf_level = 0.05, det_prev = None, dupF
     return out
 
 
-def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_width = 416, im_height = 416, name_labels = True, fast_ann = False):
+def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_width = 416, im_height = 416, name_labels = True, fast_ann = False, model_class = None, ind_map = None):
     tot_oysters = 0
     
     container = av.open(input_vid)
@@ -196,12 +212,10 @@ def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_w
             np_img = np.array(pil_img)
             np_img_resize = cv2.resize(np_img, (im_width, im_height))
             np_rot = np_img_resize[:, :, ::-1]
-            small_pil_img = Image.fromarray(np_rot)
-            an_mg, num_oysters, _, det, det_prev = ann_img_helper(small_pil_img, model, conf_level = conf_level, name_labels=name_labels, det_prev = det_prev)
+            an_mg, num_oysters, _, det, det_prev = ann_img_helper(np_rot, model, conf_level = conf_level, name_labels=name_labels, det_prev = det_prev, model_class=model_class, ind_map = ind_map)
             tot_oysters += num_oysters
             frame_out = av.VideoFrame.from_ndarray(an_mg, format='bgr24')
             end_fr = time()
-            # print(end_fr - start_fr)
             if index == 1:
                 time_fr = end_fr - start_fr
                 freq_fr = 1 / time_fr if fast_ann else fps
@@ -252,8 +266,6 @@ def ml_compile(csi, labels, epochs=20, batch_size=128, ratio_test=1/6, ratio_val
     labels_test=np.asarray(shuffled_labels[:splt_test])
     labels_val=np.asarray(shuffled_labels[splt_test:splt_test+splt_val])
     labels_train=np.asarray(shuffled_labels[splt_test+splt_val:])
-    print(data_test.shape)
-    print(labels_test.shape)
     model = tf.keras.models.Sequential([
         layers.Conv2D(128, (2, 2), activation='relu', input_shape=data_train.shape[1:]),
         layers.MaxPooling2D((2, 2)),
@@ -267,7 +279,7 @@ def ml_compile(csi, labels, epochs=20, batch_size=128, ratio_test=1/6, ratio_val
         layers.Dense(64 * (2 ** complexity_scale), activation='relu'),
         layers.Dense(32 * (2 ** complexity_scale), activation = 'relu'),
         layers.Dense(16 * (2 ** complexity_scale), activation = 'relu'),
-        layers.Dense(csi.shape[0])
+        layers.Dense(max(labels) + 1)
 
     ])
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
@@ -276,20 +288,21 @@ def ml_compile(csi, labels, epochs=20, batch_size=128, ratio_test=1/6, ratio_val
                 loss=loss_fn,
                 metrics=['accuracy'], run_eagerly=True)
     history = model.fit(data_train,labels_train,epochs=epochs, batch_size=batch_size, validation_data=(data_val, labels_val))
-    print(data_test.shape, len(labels_test))
+    # print(data_test.shape, len(labels_test))
 
 
-    model.save("models/most_recent.h5")
+    model.save("models/most_recent.keras")
     print("Saved model to models/most_recent.h5")
 
-def read_in_train(dir_name = "classification/garbage_classification", shape_new = (50,50)):
+def read_in_train(dir_name = "garbage-classification\\garbage_classification", shape_new = (50,50), max_stop = -1):
     tot_arr = []
     label_arr = []
     for label, folder in enumerate(os.listdir(dir_name)):
         print(folder)
         i = 0
         for file in os.listdir(os.path.join(dir_name, folder)):
-            if i < 50:
+            i = 0
+            if max_stop == -1 or i < max_stop:
                 i += 1
                 im = Image.open(os.path.join(dir_name, folder, file))
                 np_im = np.asarray(im)
@@ -299,5 +312,28 @@ def read_in_train(dir_name = "classification/garbage_classification", shape_new 
                 Image.fromarray(np_im_rsz).save(f"scrap/{folder}_sample.png")
                 tot_arr.append(np_im_rsz)
                 label_arr.append(label)
-    print(np.asarray(tot_arr).shape)
-    print(len(label_arr))
+    return np.asarray(tot_arr), np.asarray(label_arr)
+
+def train_classification(dir_name = "garbage-classification/garbage_classification"):
+    data, labels = read_in_train(dir_name = dir_name)
+    ml_compile(data, labels)
+
+def predict_trash(np_im, model, ind_map, input_shape = (50,50)):
+    np_resize = np.asarray([cv2.resize(np_im, input_shape)])
+    pred = model.predict(np_resize)[0]
+    pred_sm = softmax(pred)
+    # print(pred)
+    return ind_map[np.argmax(pred_sm)], max(pred_sm)
+
+def softmax(arr):
+    found_max_abs = max([abs(x) for x in arr])
+    arr_min = [ x / found_max_abs for x in arr]
+    tot = sum([math.exp(x) for x in arr_min])
+    res = [math.exp(x) / tot for x in arr_min]
+    return res
+
+def make_ind_mapping(dir_name = "garbage-classification/garbage_classification"):
+    ind_map = dict()
+    for label, folder in enumerate(os.listdir(dir_name)):
+        ind_map[label] = folder
+    return ind_map
