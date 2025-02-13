@@ -235,26 +235,13 @@ def run_live(model):
         out = ann_img_live(frame, model, conf_level = 0.5, det_prev=det_prev, dupFlag = False, trackFlag = False)
         det_prev = out[4]
 
-def train_classification():
-    pass
 
-
-def ml_compile(csi, epochs=75, batch_size=128, ratio_test=1/6, ratio_validate = 1/6, complexity_scale = 3, plotting = False, return_min_acc = False, show_heatmap = True, diag_min = False):
-    data_fit=np.asarray([[[-1]]])
-    for i in range(csi.shape[0]):
-        if data_fit[0][0][0] == -1:
-            data_fit = np.asarray(csi[i])
-        else:
-            data_fit = np.append(data_fit, csi[i], axis=0)
-
-
-    labels=np.asarray([i for i in range(csi.shape[0]) for j in range(csi.shape[1])])
-    sample_num = [ (i % csi.shape[1]) for i in range(csi.shape[1] * csi.shape[0])]
-    to_shuffle=[[data_fit[i], labels[i], sample_num[i]] for i in range(len(labels))]
+def ml_compile(csi, labels, epochs=20, batch_size=128, ratio_test=1/6, ratio_validate = 1/6, complexity_scale = 3, plotting = False, return_min_acc = False, show_heatmap = True, diag_min = False):
+    to_shuffle=[[csi[i], labels[i]] for i in range(len(labels))]
     random.shuffle(to_shuffle)
 
-    shuffled_data=np.asarray([np.reshape(np.repeat([to_shuffle[i][0]], 3), (csi.shape[2],csi.shape[3],3)) / np.max(to_shuffle[i][0]) for i in range(len(to_shuffle))])
-    shuffled_labels=np.asarray([to_shuffle[i][1] for i in range(len(to_shuffle))])
+    shuffled_data=np.asarray([x[0] / np.max(x[0]) for x in to_shuffle])
+    shuffled_labels=np.asarray([y[1] for y in to_shuffle])
 
     l=shuffled_data.shape[0]
     splt_test=int(l*ratio_test)
@@ -269,24 +256,17 @@ def ml_compile(csi, epochs=75, batch_size=128, ratio_test=1/6, ratio_validate = 
     print(labels_test.shape)
     model = tf.keras.models.Sequential([
         layers.Conv2D(128, (2, 2), activation='relu', input_shape=data_train.shape[1:]),
-        # layers.Dropout(rate=.4),
         layers.MaxPooling2D((2, 2)),
         layers.Conv2D(64, (2, 2), activation='relu'),
         layers.Dropout(rate=.4),
-        # layers.BatchNormalization(),
         layers.MaxPooling2D((2, 2)),
         layers.Conv2D(32, (2, 2), activation='relu'),
         layers.Dropout(rate=.4),
-        # layers.Dropout(rate=.3),
         layers.Flatten(),
         layers.Dense(128 * (2 ** complexity_scale), activation='relu'),
-        # layers.Dropout(rate=.3),
         layers.Dense(64 * (2 ** complexity_scale), activation='relu'),
-        # layers.Dropout(rate=.3),
         layers.Dense(32 * (2 ** complexity_scale), activation = 'relu'),
-        # layers.Dropout(rate=.3),
         layers.Dense(16 * (2 ** complexity_scale), activation = 'relu'),
-        # layers.Dropout(rate=.3),
         layers.Dense(csi.shape[0])
 
     ])
@@ -301,3 +281,23 @@ def ml_compile(csi, epochs=75, batch_size=128, ratio_test=1/6, ratio_validate = 
 
     model.save("models/most_recent.h5")
     print("Saved model to models/most_recent.h5")
+
+def read_in_train(dir_name = "classification/garbage_classification", shape_new = (50,50)):
+    tot_arr = []
+    label_arr = []
+    for label, folder in enumerate(os.listdir(dir_name)):
+        print(folder)
+        i = 0
+        for file in os.listdir(os.path.join(dir_name, folder)):
+            if i < 50:
+                i += 1
+                im = Image.open(os.path.join(dir_name, folder, file))
+                np_im = np.asarray(im)
+                if len(np_im.shape) < 3:
+                    continue
+                np_im_rsz = cv2.resize(np_im, shape_new)
+                Image.fromarray(np_im_rsz).save(f"scrap/{folder}_sample.png")
+                tot_arr.append(np_im_rsz)
+                label_arr.append(label)
+    print(np.asarray(tot_arr).shape)
+    print(len(label_arr))

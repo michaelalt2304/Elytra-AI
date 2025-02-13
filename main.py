@@ -23,3 +23,5 @@ VIDEO_NAME = "media/video_NYC.mp4"
 
 ############################################################
 
+#### training classification ####
+read_in_train()
