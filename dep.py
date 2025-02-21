@@ -26,7 +26,10 @@ import tensorflow as tf
 import tensorflow.keras.layers as layers
 import random
 import math
+# from f5.bigip.tm import ltm
 
+
+LIVE_IMAGE = "live_img.png"
 
 def get_filename(fpath):
     return fpath.replace('\\', '/').rsplit('/', 1)[-1]
@@ -41,8 +44,33 @@ def comp(a, b, sign):
     else:
         return a < b
 
-def check_close(detections, pixel_threshold):
-    elim_list = []
+def check_close(detections, pixel_threshold): #used nested for loop which ran in n^2 time
+    begin = time()
+    
+    xyxy = detections.xyxy
+    n = len(xyxy)
+
+    if n <= 1:
+        return np.array([])
+    
+    diffs = np.abs(xyxy[:, np.newaxis, :] - xyxy[np.newaxis, : , :])
+
+    close_x = diffs[:, :, 0] + diffs[:, :, 2] < pixel_threshold  # (n, n)
+    close_y = diffs[:, :, 1] + diffs[:, :, 3] < pixel_threshold  # (n, n)
+    close_overall = np.logical_or(close_x, close_y)
+
+    gt_mask = xyxy[:, np.newaxis, :] > xyxy[np.newaxis, :, :]
+    lt_mask = xyxy[:, np.newaxis, :] < xyxy[np.newaxis, :, :]
+
+    contained = np.all(np.logical_and(gt_mask[:, :, :2], lt_mask[:, :, 2:]), axis=2)
+    contained = np.logical_or(contained, np.all(np.logical_and(lt_mask[:, :, :2], gt_mask[:, :, 2:]), axis=2))
+
+    elim_mask = np.logical_or(close_overall, contained)  # Combine close and contained checks
+    elim_mask = np.triu(elim_mask, k=1)  # Consider only upper triangle (avoid duplicates and self-comparisons)
+
+    elim_indices = np.where(np.any(elim_mask, axis=1))[0]
+    return elim_indices
+    '''elim_list = []
     for i, det1 in enumerate(detections.xyxy):
         for j, det2 in enumerate(detections.xyxy):
             if i <= j:
@@ -54,7 +82,7 @@ def check_close(detections, pixel_threshold):
             gt = det1[0] > det1[0]
             if comp(det1[0], det2[0], gt) and comp(det1[1], det2[1], gt) and comp(det1[2], det2[2], not gt) and comp(det1[3], det2[3], not gt):
                 elim_list.append(i)
-    return np.unique(elim_list)
+    return np.unique(elim_list)'''
 
 
 def update_det_prev(det_prev, xyxy, confidence = None, count = -1, id = None, classification = None):
@@ -86,15 +114,16 @@ def find_change_max(detections, im, model_class, ind_map):
                 break 
 
     return detections, det_prev    
-def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10, dupFlag = True, trackFlag = True, model_class = None, ind_map = None) -> np.ndarray:
-    results = model(im, conf=conf_level, verbose = verbose)[0]
+def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(text_scale = 0.4, text_padding = 1), bounding_box_annotator = sv.BoxCornerAnnotator(), verbose = False, conf_level = 0.05, name_labels = True, gold_class = 'Trash', cl_id = 10, find_one = True, pixel_threshold = 20, det_prev = None, max_error = 10, dupFlag = True, trackFlag = True, model_class = None, ind_map = None, print_time = True) -> np.ndarray:
+    start_ann = time()
+    results = model(im, conf=conf_level, verbose = verbose)[0] # Takes 100 ms on my machine, BAD, try to get to 50
+    end_pred = time()
+    print((end_pred - start_ann) * 1000, "ms for prediction") if print_time else None 
     if name_labels:
         used_labels = np.array(results.boxes.conf.cpu())
     else:
         conf_array = np.array(results.boxes.conf.cpu())
         used_labels = [str(round(x * 100)) + '%' for x in conf_array]
-    
-
     tot_time = sum([x for x in results.speed.values()])
     
     detections = sv.Detections.from_ultralytics(results)
@@ -142,15 +171,15 @@ def ann_img_helper(im: np.ndarray, model, label_annotator = sv.LabelAnnotator(te
                     detections.data['class_name'] = np.insert(detections.data['class_name'], 0, det_prev['classification'])                
                 # mark that an error occurred, if too many switch target
                 det_prev['count'] += 1
-
-
     im = Image.fromarray(im)
     annotated_image = bounding_box_annotator.annotate(
         scene=im, detections=detections)
     num_oysters = detections.xyxy.shape[0]
     annotated_image = label_annotator.annotate(
         scene=annotated_image, detections=detections, labels = used_labels if not name_labels else None)
-    return np.asarray(annotated_image), num_oysters, tot_time, detections, det_prev
+    end_ann = time()
+    print((end_ann - start_ann) * 1000,  "ms for whole image annotation") if print_time else False
+    return np.asarray(annotated_image), num_oysters, tot_time, detections, det_prev # takes about 400 ms total without classification, 500 ms with, bad
 
 def get_class(im, xyxy, model_class, ind_map):
     if not model_class or not ind_map:
@@ -161,7 +190,8 @@ def get_class(im, xyxy, model_class, ind_map):
         x_end = int(xyxy[2])
         y_start = int(xyxy[1])
         y_end = int(xyxy[3])
-        new_class, prob = predict_trash(im[x_start:x_end, y_start:y_end], model_class, ind_map)
+        new_class, prob = predict_trash(im[-x_end:-x_start, -y_end:-y_start], model_class, ind_map)
+        im[-x_end:-x_start, -y_end:-y_start] = 0
     return new_class, prob
 
 
@@ -174,15 +204,15 @@ def ann_img(fname, model, conf_level = 0.05, dest = "."):
     return out
 
 def ann_img_live(im: np.ndarray, model, conf_level = 0.05, det_prev = None, dupFlag = True, trackFlag = True, verbose = True):
-    np_img_rsz = cv2.resize(im[:,:,::-1], (412, 412))
+    im_np = np.array(im)
+    np_img_rsz = cv2.resize(im_np[:,:,::-1], (412, 412))
     out = ann_img_helper(np_img_rsz, model, conf_level = conf_level, det_prev = det_prev, dupFlag = dupFlag, trackFlag = trackFlag)
-    Image.fromarray(out[0]).save("live_img.png")
+    Image.fromarray(out[0]).save(LIVE_IMAGE)
     return out
 
 
 def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_width = 416, im_height = 416, name_labels = True, fast_ann = False, model_class = None, ind_map = None):
     tot_oysters = 0
-    
     container = av.open(input_vid)
     stream_vid = container.streams.video[0]
     fname = get_filename(input_vid)
@@ -191,15 +221,14 @@ def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_w
     out_path = os.path.join(out_location, f'{fname[:per_index]}_annotated.{ext}')
     codec_name = stream_vid.codec_context.name
     fps = stream_vid.codec_context.rate
-
-
     outp = av.open(out_path, 'w')
     output_stream = outp.add_stream(codec_name, fps) # f"{int(fps*1000)}/1001"
     output_stream.width = im_width
     output_stream.height = im_height
     output_stream.pix_fmt = stream_vid.codec_context.pix_fmt
 
-
+    with open("new_det_prev.csv", "w") as f:
+        f.write("X1,Y1,X2,Y2,Confidence,Object,Count\n")
 
    
     start_overall = time()
@@ -212,7 +241,12 @@ def ann_video(input_vid: str, model, conf_level: float, out_location = '.', im_w
             np_img = np.array(pil_img)
             np_img_resize = cv2.resize(np_img, (im_width, im_height))
             np_rot = np_img_resize[:, :, ::-1]
-            an_mg, num_oysters, _, det, det_prev = ann_img_helper(np_rot, model, conf_level = conf_level, name_labels=name_labels, det_prev = det_prev, model_class=model_class, ind_map = ind_map)
+            an_mg, num_oysters, _, det, det_prev = ann_img_helper(np_rot, model, conf_level = conf_level, name_labels=name_labels, det_prev = det_prev, model_class=model_class, ind_map = ind_map, print_time = index == 1)
+            if det_prev:
+                with open("new_det_prev.csv", "a") as f:
+                    xyxy = det_prev['xyxy']
+                    f.write(f"{xyxy[0]},{xyxy[1]},{xyxy[2]},{xyxy[3]},{det_prev['confidence']},{det_prev['classification']},{det_prev['count']}\n")
+            
             tot_oysters += num_oysters
             frame_out = av.VideoFrame.from_ndarray(an_mg, format='bgr24')
             end_fr = time()
@@ -246,7 +280,7 @@ def run_live(model):
     while(True):
         cap = cv2.VideoCapture(0)
         ret, frame = cap.read()
-        out = ann_img_live(frame, model, conf_level = 0.5, det_prev=det_prev, dupFlag = False, trackFlag = False)
+        out = ann_img_live(frame, model, conf_level = 0.5, det_prev=det_prev, dupFlag = False, trackFlag = True)
         det_prev = out[4]
 
 
@@ -319,10 +353,14 @@ def train_classification(dir_name = "garbage-classification/garbage_classificati
     ml_compile(data, labels)
 
 def predict_trash(np_im, model, ind_map, input_shape = (50,50)):
+    # takes 100 ms
     np_resize = np.asarray([cv2.resize(np_im, input_shape)])
+    time_start = time()
     pred = model.predict(np_resize)[0]
+    time_end = time()
+    print((time_end - time_start) * 1000, "ms for classification")
     pred_sm = softmax(pred)
-    # print(pred)
+    Image.fromarray(np_resize[0]).save("cur_trash.png")
     return ind_map[np.argmax(pred_sm)], max(pred_sm)
 
 def softmax(arr):
