@@ -14,3 +14,7 @@ __pycache__
 classification*/
 garbage-classification/
 trashnet/
+tracks/
+live_img.png
+new_media/
+dataset-for-garbage/

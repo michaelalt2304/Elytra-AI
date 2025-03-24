@@ -41,5 +41,9 @@ if not os.path.exists(dummy):
     status = os.system(f"{VIRTUAL_PIP} install -r requirements.txt")
     with open(dummy, 'a') as f:
         f.write("All initialized in terms of packages, etc, should run smoothly. If not contact mjstraus2304@gmail.com")
-
+# os.system(f"{VIRTUAL_PIP} install tflite_support")
+# os.system(f"{VIRTUAL_PIP} install tf_keras")
+# os.system(f"{VIRTUAL_PIP} install sng4onnx")
+# os.system(f"{VIRTUAL_PIP} install onnx_graphsurgeon")
+# os.system(f"{VIRTUAL_PIP} install onnx2tf")
 status = os.system(f"{VIRTUAL_PYTHON} main.py")
